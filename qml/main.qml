@@ -1,5 +1,6 @@
 import QtQuick 2.12
 import MyPlugins.Terminal 1.0
+import "qrc:/qml/commons"
 
 Rectangle {
     id: root
@@ -8,47 +9,97 @@ Rectangle {
 
     TerminalController { id: term }
 
-    // --- 顶部输入栏 ---
+    // ═══════════════════════════════════════════════════════════
+    // 虚拟键盘调用逻辑
+    // ═══════════════════════════════════════════════════════════
+    function requestKeyboard() {
+        let component = qmlCreateComponent("YInputPage");
+        if (Component.Ready === component.status) {
+            var incubator = component.incubateObject(id_page_pop_helper.containerItem);
+            if (incubator.status !== Component.Ready) {
+                incubator.onStatusChanged = function(status) {
+                    if (status === Component.Ready)
+                        id_page_pop_helper.inputPageCreated(incubator.object);
+                };
+            } else {
+                id_page_pop_helper.inputPageCreated(incubator.object);
+            }
+        }
+    }
+
+    YPagePopHelper {
+        id: id_page_pop_helper
+        z: 99
+
+        function inputPageCreated(keyboardPage) {
+            keyboardPage.backButtonClicked.connect(function() {
+                if (typeof qmlGlobal !== "undefined") qmlGlobal.inputPageShowing = false;
+                keyboardPage.todoDestroy();
+            });
+
+            keyboardPage.inputFinished.connect(function(content) {
+                if (typeof qmlGlobal !== "undefined") qmlGlobal.inputPageShowing = false;
+                keyboardPage.todoDestroy();
+                
+                // 执行输入的命令
+                if (content.trim().length > 0) {
+                    term.execute(content.trim());
+                }
+            });
+
+            keyboardPage.enterText(""); // 每次打开键盘清空输入
+            keyboardPage.show();
+            if (typeof qmlGlobal !== "undefined") qmlGlobal.inputPageShowing = true;
+        }
+
+        isShowing: typeof qmlGlobal !== "undefined" ? qmlGlobal.inputPageShowing : false
+        objectName: "from_Terminal.qml"
+    }
+
+    // ═══════════════════════════════════════════════════════════
+    // 顶部终端提示符 (点击触发键盘)
+    // ═══════════════════════════════════════════════════════════
     Rectangle {
         id: inputArea
         width: parent.width; height: 32
         color: "#0F0F0F"
         z: 10
+        anchors.top: parent.top
 
-        Rectangle { // 底部装饰线
+        Rectangle {
             width: parent.width; height: 1; color: "#00FF00"
-            opacity: 0.2; anchors.bottom: parent.bottom
+            opacity: 0.3; anchors.bottom: parent.bottom
         }
 
         Row {
-            anchors.fill: parent; anchors.leftMargin: 8; spacing: 4
+            anchors.fill: parent; anchors.leftMargin: 8; spacing: 8
             Text {
-                text: "#"; color: "#00FF00"; font.bold: true
+                text: "root@pen:~#"
+                color: "#00FF00"; font.bold: true
+                font.family: "monospace"; font.pixelSize: 14
                 anchors.verticalCenter: parent.verticalCenter
             }
-            TextInput {
-                id: cmdInput
-                width: 280; height: parent.height
-                color: "#FFFFFF"
-                font.family: "monospace"
-                font.pixelSize: 15
-                verticalAlignment: TextInput.AlignVCenter
-                focus: true
-                clip: true
-                
-                onAccepted: {
-                    term.execute(text);
-                    text = "";
-                }
+            Text {
+                text: "Tap to type command..."
+                color: "#666666"
+                font.family: "monospace"; font.pixelSize: 13
+                anchors.verticalCenter: parent.verticalCenter
             }
+        }
+
+        MouseArea {
+            anchors.fill: parent
+            onClicked: requestKeyboard()
         }
     }
 
-    // --- 滚动输出区 ---
+    // ═══════════════════════════════════════════════════════════
+    // 滚动输出区 (占满剩余屏幕)
+    // ═══════════════════════════════════════════════════════════
     Flickable {
         id: flick
         anchors.top: inputArea.bottom
-        anchors.bottom: actionBar.top
+        anchors.bottom: parent.bottom // 直接到底，因为去掉了快捷键
         width: parent.width
         clip: true
         contentHeight: logText.height + 20
@@ -66,42 +117,7 @@ Rectangle {
             font.family: "monospace"
             font.pixelSize: 12
             wrapMode: Text.WrapAnywhere
-            lineHeight: 1.1
-        }
-    }
-
-    // --- 底部快捷键（手动实现按钮） ---
-    Rectangle {
-        id: actionBar
-        width: parent.width; height: 32
-        color: "#111111"
-        anchors.bottom: parent.bottom
-
-        Row {
-            anchors.fill: parent
-            Repeater {
-                model: ["ls", "top", "df", "free", "clear"]
-                delegate: Rectangle {
-                    width: 320 / 5; height: 32
-                    color: btnArea.pressed ? "#00FF00" : "transparent"
-                    
-                    Text {
-                        text: modelData
-                        anchors.centerIn: parent
-                        color: btnArea.pressed ? "#000000" : "#888888"
-                        font.pixelSize: 12
-                    }
-
-                    MouseArea {
-                        id: btnArea
-                        anchors.fill: parent
-                        onClicked: {
-                            if (modelData === "clear") term.clear();
-                            else term.execute(modelData);
-                        }
-                    }
-                }
-            }
+            lineHeight: 1.2
         }
     }
 }
