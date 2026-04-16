@@ -1,0 +1,10 @@
+{
+    "id": "com.terminal.runner",
+    "name": "超级终端",
+    "version": "1.0.0",
+    "author": "山本小面包",
+    "description": "适配 320x170 屏幕的 Linux 终端执行器",
+    "icon": "icon.png",
+    "main_qml": "qml/main.qml",
+    "main_so": "libterminal_plugin.so"
+}

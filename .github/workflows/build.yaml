@@ -1,0 +1,93 @@
+name: Build Terminal Plugin
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+env:
+  GCC_BASE_URL: https://github.com/Redbeanw44602/aarch64-linux-gnu-gcc-6.5.0/releases/download/6.5.0
+  QT_DIR: ${{ github.workspace }}/qt-aarch64
+  XMAKE_ROOT: y
+  BUILD_MODE: release
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    container:
+      image: archlinux:latest
+
+    steps:
+      - name: 更新系统 & 安装依赖
+        run: |
+          pacman -Syu --noconfirm
+          # 去掉了 zip，只保留必要的构建工具
+          pacman -S --noconfirm \
+            base-devel git zig wget curl \
+            python3 ninja cmake nasm libxcrypt lame qt5-tools qt5-base
+
+      - name: 安装 aarch64 交叉编译工具链
+        run: |
+          wget -q "${{ env.GCC_BASE_URL }}/aarch64-linux-gnu-binutils-2.30-1-x86_64.pkg.tar.zst"
+          wget -q "${{ env.GCC_BASE_URL }}/aarch64-linux-gnu-glibc-2.27-1-any.pkg.tar.zst"
+          wget -q "${{ env.GCC_BASE_URL }}/aarch64-linux-gnu-gcc-6.5.0-1-x86_64.pkg.tar.zst"
+          pacman -U --noconfirm \
+            aarch64-linux-gnu-binutils-2.30-1-x86_64.pkg.tar.zst \
+            aarch64-linux-gnu-glibc-2.27-1-any.pkg.tar.zst \
+            aarch64-linux-gnu-gcc-6.5.0-1-x86_64.pkg.tar.zst
+
+      - name: 检出代码
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: 下载并配置 Qt 5.15.2 (aarch64)
+        run: |
+          wget -q https://github.com/Redbeanw44602/aarch64-linux-qt-5.15.2/releases/latest/download/aarch64-linux-qt-5.15.2.tar.gz -O /tmp/qt.tar.gz
+          mkdir -p ${{ env.QT_DIR }}
+          tar -xzf /tmp/qt.tar.gz -C ${{ env.QT_DIR }}
+          g++ -o "${{ env.QT_DIR }}/bin/qmake" -D"PREFIX=\"${{ env.QT_DIR }}\"" "${{ env.QT_DIR }}/bin/qmake.cpp"
+          chmod +x "${{ env.QT_DIR }}/bin/qmake"
+
+      - name: 安装并配置 xmake
+        run: |
+          pacman -U --noconfirm binary/xmake-git-3.0.3.r259-1-x86_64.pkg.tar.zst
+          xmake f -y --root \
+            -p linux \
+            -a arm64-v8a \
+            -m ${{ env.BUILD_MODE }} \
+            --sdk=/usr \
+            --toolchain=zig \
+            --cross=aarch64-linux-gnu.2.27 \
+            --qt="${{ env.QT_DIR }}"
+
+      - name: 编译 Terminal 插件
+        run: xmake build -y --root
+
+      - name: 整理插件目录结构
+        run: |
+          # 创建 plugin_dist 作为上传根目录
+          # 在其内部创建 Terminal 文件夹
+          mkdir -p plugin_dist/Terminal/qml
+          
+          # 拷贝编译结果
+          find build/linux -name "*.so" -exec cp {} plugin_dist/Terminal/libterminal_plugin.so \;
+          
+          # 拷贝配置文件
+          [ -f metadata.json ] && cp metadata.json plugin_dist/Terminal/
+          [ -f icon.png ] && cp icon.png plugin_dist/Terminal/
+          
+          # 拷贝 QML 资源
+          cp -r qml/* plugin_dist/Terminal/qml/
+          
+          # 调试打印结构
+          ls -R plugin_dist/
+
+      - name: 上传构建产物
+        uses: actions/upload-artifact@v4
+        with:
+          # 下载后的文件名会是 Terminal_Plugin_AARCH64.zip
+          name: Terminal_Plugin_AARCH64
+          # 指向 plugin_dist，解压后首层就是 Terminal 文件夹
+          path: plugin_dist/
+          retention-days: 7
